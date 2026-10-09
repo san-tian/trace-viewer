@@ -82,13 +82,16 @@ class H(BaseHTTPRequestHandler):
         if p.suffix == ".js":
             ctype = "application/javascript; charset=utf-8"
 
-        # 缓存策略
-        if "/cells/" in str(p) or p.name in ("index.js",):
+        # 缓存策略：cells/ 内容不可变可长缓存；index.js 会随数据更新，必须短缓存
+        # （否则改完数据浏览器还在用旧的 index.js —— 踩过）
+        if "/cells/" in str(p):
             cache = "public, max-age=31536000, immutable"
         elif "/download/" in str(p):
             cache = "public, max-age=3600"
+        elif p.name == "index.js":
+            cache = "no-cache"          # 每次带 ETag/Last-Modified 回源校验
         else:
-            cache = "public, max-age=300"
+            cache = "no-cache"
 
         start, end = 0, size - 1
         partial = False
