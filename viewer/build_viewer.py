@@ -235,10 +235,17 @@ def main():
     sz = sum(f.stat().st_size for f in (out / "cells").glob("*.js"))
     print(f"{n_cell} 个单元格，合计 {sz/1e6:.0f} MB")
 
-    # ── 前端 ──
-    shutil.copy2(HERE / "index.html", out / "index.html")
-
-    # ── 可选：分数总表 CSV ──
+    # 前端
+    import hashlib, re as _re, time as _time
+    vhash = hashlib.sha1((str(_time.time()) + str(len(cells))).encode()).hexdigest()[:10]
+    html = (HERE / "index.html").read_text(encoding="utf-8")
+    # 版本号破缓存：index.js 与 cells/*.js 的 src 都带上 ?v=<hash>。
+    # 否则任何中间缓存（浏览器/代理）都可能送旧文件 —— 字段对不上就直接空白。
+    html = _re.sub(r'(<script\s+src="index\.js)(")', rf'\1?v={vhash}\2', html)
+    html = html.replace("`cells/${tag}_${String(row).padStart(4,'0')}.js`",
+                        f"`cells/${{tag}}_${{String(row).padStart(4,'0')}}.js?v={vhash}`")
+    (out / "index.html").write_text(html, encoding="utf-8")
+    print(f"index.html 已就位 (version={vhash}) -> {out}")
     if args.scores_csv:
         import csv
         (out / "download").mkdir(exist_ok=True)
@@ -258,8 +265,6 @@ def main():
             w = csv.DictWriter(fh, fieldnames=list(rows_csv[0].keys()))
             w.writeheader(); w.writerows(rows_csv)
         print(f"download/scores.csv  {len(rows_csv)} 行")
-
-    print(f"index.html 已就位 -> {out}")
 
 
 if __name__ == "__main__":
