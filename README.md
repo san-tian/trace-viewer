@@ -38,15 +38,19 @@
 
 ---
 
+## 在线演示
+
+**<https://san-tian.github.io/trace-viewer/>** —— 直接用合成数据跑起来的例子。
+
 ## 快速开始
 
 ```bash
 git clone <this-repo> && cd trace-viewer
 
 # ① 看内置演示（合成数据，不是真实基准）
-cd demo/site && python3 -m http.server 8000
+python3 viewer/serve.py 8000 docs
 # 打开 http://localhost:8000
-# 也可以直接双击 demo/site/index.html
+# 也可以直接双击 docs/index.html
 
 # ② 换成你自己的数据
 cd viewer
@@ -113,7 +117,7 @@ judged/<source>/judged/rowNNNN.sK.json  判分记录
 }
 ```
 
-字段全部**可选**，缺了就不显示那一块。完整字段与推导关系见 [`docs/DATA-FORMAT.md`](docs/DATA-FORMAT.md)。
+字段全部**可选**，缺了就不显示那一块。完整字段与推导关系见 [`docs/data-format.md`](docs/data-format.md)。
 
 ---
 
@@ -180,10 +184,12 @@ trace-viewer/
 │   └── serve.py          增强服务器（Range + gzip + 缓存头）
 ├── demo/
 │   ├── make_demo.py      合成演示数据生成器
+│   ├── build-demo.sh     重新编译演示站点到 docs/
 │   ├── config.json       演示配置
-│   ├── data/             合成原始数据（144 条样本）
-│   └── site/             编译好的演示站点（可直接打开）
-├── docs/DATA-FORMAT.md   数据格式完整说明
+│   └── data/             合成原始数据（144 条样本）
+├── docs/                 GitHub Pages 发布根 = 编译好的演示站点
+│   ├── index.html / index.js / cells/ / download/
+│   └── data-format.md    数据格式完整说明
 └── LICENSE               MIT
 ```
 
