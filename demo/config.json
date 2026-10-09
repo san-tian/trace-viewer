@@ -1,0 +1,15 @@
+{
+  "title": "Trace Viewer · Demo",
+  "subtitle": "12 题 × 4 采样 × 3 源（合成演示数据，非真实基准）",
+  "solved_fraction": 0.7,
+  "pass_label": "pass@4",
+  "subjects": {"algebra": "代数", "geometry": "几何", "combinatorics": "组合"},
+  "sources": [
+    {"tag": "alpha", "name": "Alpha-7B"},
+    {"tag": "beta",  "name": "Beta-MoE"},
+    {"tag": "gamma", "name": "Gamma-API"}
+  ],
+  "downloads": [
+    {"label": "分数总表 CSV", "path": "download/scores.csv", "size": "小"}
+  ]
+}

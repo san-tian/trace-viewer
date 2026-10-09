@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Trace Viewer</title>
+<style>
+:root{
+  --bg:#0b0d12; --panel:#141821; --panel2:#1a1f2b; --line:#252b38; --line2:#323a4a;
+  --txt:#e3e7ee; --dim:#8b93a3; --dim2:#6b7280;
+  /* 内容类型配色 */
+  --c-q:#60a5fa;      /* 题目 */
+  --c-rub:#a78bfa;    /* 评分标准 */
+  --c-think:#6b7280;  /* 模型思考 */
+  --c-ans:#34d399;    /* 模型回答（被打分的） */
+  --c-jout:#fbbf24;   /* judge 输出原文 */
+  --c-jwhy:#22d3ee;   /* judge 推理 */
+  --hi:#3b82f6;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);
+  font:13px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans CJK SC",sans-serif}
+header{padding:12px 18px;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:50;
+  background:var(--panel);box-shadow:0 2px 12px #0006}
+h1{margin:0 0 9px;font-size:15px;font-weight:600}
+h1 small{color:var(--dim);font-weight:400;font-size:11.5px;margin-left:8px}
+table{border-collapse:collapse;font-size:12px}
+th,td{padding:3px 9px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--dim);font-weight:500}
+td.l,th.l{text-align:left}
+tr.sel td{background:#1e293b}
+#ctl{display:flex;gap:13px;flex-wrap:wrap;align-items:center;margin-top:9px;font-size:12px}
+#ctl label{color:var(--dim)}
+select,input[type=number]{background:#0a0c11;color:var(--txt);border:1px solid var(--line2);
+  border-radius:4px;padding:3px 6px;font-size:12px}
+.wrap{display:flex;height:calc(100vh - 200px)}
+#mx{overflow:auto;padding:12px 18px;flex:0 0 auto}
+.grid{border-collapse:separate;border-spacing:2px}
+.grid th{position:sticky;top:0;background:var(--panel);z-index:5;font-size:11px;
+  padding:6px 8px;cursor:pointer;border:none}
+.grid th.rowh{left:0;z-index:6;text-align:right;color:var(--dim);font-weight:400}
+.grid td{padding:0}
+.cell{width:74px;height:25px;display:flex;align-items:center;justify-content:center;
+  border-radius:3px;cursor:pointer;font-size:11px;font-variant-numeric:tabular-nums;
+  border:1px solid transparent;user-select:none}
+.cell:hover{border-color:#fff}
+.cell.act{border-color:#fff;box-shadow:0 0 0 2px var(--hi)}
+.cell.dim{opacity:.2}
+#det{flex:1;overflow:auto;padding:0;border-left:1px solid var(--line);min-width:0}
+.empty{color:var(--dim);padding:50px 20px;text-align:center;line-height:2}
+
+/* ── 明细区 ── */
+.pad{padding:14px 18px}
+.qbox{background:var(--panel);border:1px solid var(--line);border-radius:7px;margin-bottom:14px;overflow:hidden}
+.qbox>.qh{padding:9px 13px;font-size:13px;display:flex;flex-wrap:wrap;gap:9px;align-items:center}
+.chip{padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600}
+.chip.src{background:#1e3a5f;color:#93c5fd}
+.chip.subj{background:#3b2f56;color:#c4b5fd}
+
+/* 内容块：统一的「卡片 + 左侧色条 + 图标标题」 */
+.blk{border-left:3px solid var(--line2);background:var(--panel);border-radius:0 6px 6px 0;
+  margin:9px 0;overflow:hidden}
+.blk>.bh{display:flex;align-items:center;gap:8px;padding:7px 11px;cursor:pointer;
+  background:var(--panel2);font-size:12.5px;font-weight:600;user-select:none}
+.blk>.bh:hover{background:#212838}
+.blk>.bh .ico{font-size:13px}
+.blk>.bh .fn{color:var(--dim2);font:11px ui-monospace,monospace;font-weight:400}
+.blk>.bh .ln{margin-left:auto;color:var(--dim);font:11px ui-monospace,monospace;font-weight:400}
+.blk>.bh .arw{color:var(--dim);font-size:10px;width:12px}
+.blk>.bd{display:none;padding:10px 13px}
+.blk.open>.bd{display:block}
+.blk.q  {border-left-color:var(--c-q)}   .blk.q>.bh  {color:var(--c-q)}
+.blk.rub{border-left-color:var(--c-rub)} .blk.rub>.bh{color:var(--c-rub)}
+.blk.think{border-left-color:var(--c-think)} .blk.think>.bh{color:#9ca3af}
+.blk.ans{border-left-color:var(--c-ans)} .blk.ans>.bh{color:var(--c-ans)}
+.blk.jout{border-left-color:var(--c-jout)}.blk.jout>.bh{color:var(--c-jout)}
+.blk.jwhy{border-left-color:var(--c-jwhy)}.blk.jwhy>.bh{color:var(--c-jwhy)}
+.blk.note{border-left-color:var(--line2)}
+.hintline{color:var(--dim);font-size:11px;margin:0 0 7px;padding-left:2px}
+
+pre{white-space:pre-wrap;word-break:break-word;margin:0;
+  font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#cbd5e1}
+.md{white-space:normal;font:12.5px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+.md h2{font-size:13.5px;margin:12px 0 5px;color:#e3e7ee;border-bottom:1px solid var(--line);padding-bottom:3px}
+.md h3{font-size:13px;margin:10px 0 4px;color:#dbe2ec}
+.md b,.md strong{color:#fff;background:#ffffff14;border-radius:2px;padding:0 2px}
+.md ul{margin:5px 0;padding-left:20px}
+.md li{margin:3px 0}
+.md hr{border:0;border-top:1px solid var(--line);margin:10px 0}
+.tog{display:flex;gap:0;margin-bottom:7px;font-size:11px}
+.tog button{background:var(--panel2);color:var(--dim);border:1px solid var(--line2);
+  padding:2px 10px;cursor:pointer;font-size:11px}
+.tog button:first-child{border-radius:4px 0 0 4px}
+.tog button:last-child{border-radius:0 4px 4px 0;border-left:none}
+.tog button.on{background:var(--hi);color:#fff;border-color:var(--hi)}
+.free{max-height:46vh;overflow:auto;background:#0d1017;border-radius:4px;padding:9px 11px}
+
+/* 样本卡 */
+.smp{background:#10141c;border:1px solid var(--line);border-radius:8px;margin:0 0 12px;overflow:hidden}
+.smp>.sh{display:flex;flex-wrap:wrap;gap:9px;align-items:center;padding:9px 13px;
+  background:var(--panel2);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:10}
+.smp>.sb{padding:11px 13px}
+.kv{color:var(--dim);font-size:11.5px}
+.kv b{color:var(--txt);font-variant-numeric:tabular-nums}
+.verd{padding:2px 10px;border-radius:11px;font-size:11.5px;font-weight:700;color:#fff}
+.v-ok{background:#15803d}.v-no{background:#9a3412}.v-sk{background:#4b5563}.v-err{background:#7f1d1d}
+.subhd{margin:14px 0 5px;font-size:12px;color:var(--dim);border-top:1px solid var(--line);
+  padding-top:9px;display:flex;gap:8px;align-items:center;font-weight:500}
+.votewrap{background:#0d1017;border:1px solid var(--line);border-radius:6px;padding:9px 11px;margin:8px 0}
+.votehd{display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:12px;margin-bottom:7px}
+.tick{display:inline-block;width:16px;height:16px;line-height:16px;text-align:center;
+  border-radius:50%;font-size:10px;font-weight:700;color:#fff}
+.legend{color:var(--dim);font-size:11px;margin-top:7px}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px;margin:0 3px 0 0}
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span id="ttl">Trace Viewer</span>
+    <small id="sub"></small></h1>
+  <div id="sum"></div>
+  <div id="ctl">
+    <label>排序 <select id="sort">
+      <option value="row">题号 0→59</option>
+      <option value="hard">题目难度（最难在前）</option>
+      <option value="easy">题目难度（最易在前）</option>
+      <option value="subj">学科</option></select></label>
+    <label>学科 <select id="subj"><option value="">全部</option>
+      <option value="biology">生物</option><option value="chemistry">化学</option>
+      <option value="physics">物理</option></select></label>
+    <label>只显示解出 ≤ <input id="maxsol" type="number" min="0" max="6" value="6" style="width:50px"> 次的格子</label>
+    <label><input id="hideok" type="checkbox"> 只看所有源都答不好的题</label>
+    <span class="kv" id="hint"></span>
+    <span style="flex:1"></span>
+    <label id="dlwrap" style="display:none">⬇️ 下载
+      <select id="dl" style="min-width:210px"></select></label>
+    <button id="dlgo" style="display:none;background:#2563eb;color:#fff;border:0;border-radius:4px;
+      padding:4px 14px;cursor:pointer;font-size:12px">下载全部文件</button>
+  </div>
+  <div class="legend">
+    格子 = 6 次采样中判为解出的次数：
+    <span class="sw" style="background:#7f1d1d"></span>0
+    <span class="sw" style="background:#9a3412"></span>1
+    <span class="sw" style="background:#a16207"></span>2
+    <span class="sw" style="background:#4d7c0f"></span>3
+    <span class="sw" style="background:#15803d"></span>4-5
+    <span class="sw" style="background:#166534"></span>6
+    &nbsp;·&nbsp; 点列头可只高亮某源
+    &nbsp;·&nbsp;
+    <a href="#" id="helptog" style="color:var(--hi)">❓ 名词说明</a>
+  </div>
+
+  <div id="help" style="display:none;margin-top:9px;background:#0d1017;border:1px solid var(--line2);
+       border-radius:7px;padding:11px 14px;font-size:12px;line-height:1.75;max-height:56vh;overflow:auto">
+
+    <div style="background:#1c1408;border-left:3px solid var(--c-jout);border-radius:0 5px 5px 0;
+         padding:8px 11px;margin-bottom:12px">
+      <b style="color:var(--c-jout);font-size:13px">skip_empty &nbsp;（样本卡里显示为灰底「skip_empty」）</b><br>
+      <b>一句话</b>：模型把 131,072 token 的预算<b>全花在思考上，一个字答案都没写出来</b>。
+      判分器拿不到可打分的正文，所以这个样本<b>直接记 0 分，而且根本不调用 judge</b>。<br><br>
+      <b>判据是什么</b>：house 协议规定，judge 的打分对象是「第一个 <code>&lt;/think&gt;</code> 之后的正文」。
+      如果文本里根本没有 <code>&lt;/think&gt;</code>（思考没闭合），就等于「没开始答题」→ skip-empty → 0 分。<br><br>
+      <b>实测这 33 条的共性</b>：<code>finish_reason</code> <b>全部是 <code>length</code></b>（打满上限被截断）、
+      <code>completion_tokens</code> <b>全部恰好 131,072</b>、<code>answer_text</code> <b>0 字符</b>、
+      思考文本 32.6 万～40.7 万字符，结尾是被切在半句话上。<br><br>
+      <b>各源分布</b>：<span id="sknote"></span><br>
+      <b>对分数的影响</b>：skip_empty 样本计入分母（按 0 分计），所以会拉低该源的 pass@1 / mean points。
+      想看它们长什么样：点开带灰底标签的样本卡，展开「🧠 模型思考过程」看它卡在哪一步。
+      <div id="helpExtra" style="margin-top:8px"></div>
+    </div>
+
+    <table style="width:100%;font-size:12px">
+      <tr><th class="l" style="width:150px">显示</th><th class="l">含义</th></tr>
+      <tr><td class="l"><b>reward</b></td><td class="l">最终分 = 三票 <code>points</code> 的中位数 ÷ 10，范围 0～1</td></tr>
+      <tr><td class="l"><b>points</b></td><td class="l">三票 points 的中位数（满分 10）。<b>≥ 7.0 记「解出」</b></td></tr>
+      <tr><td class="l"><b>votes</b></td><td class="l">三票的结论序列，一个字母一票：<b>C</b> = 该票判为解出，<b>I</b> = 未解出。<br>
+        <code>III</code> 三票都判未解出 · <code>CCC</code> 三票都判解出 · <code>CCI</code> <b>有一票不同意 ← 最值得人工复核</b></td></tr>
+      <tr><td class="l"><b>finish</b></td><td class="l"><code>stop</code> 模型正常说完 · <code>length</code> 打满 131,072 上限被截断 ·
+        <code>null</code> 流被中途掐断（但正文已收到，仍可判分）</td></tr>
+      <tr><td class="l"><b>尝试 N 次</b></td><td class="l">网络层重试次数。&gt;1 说明撞过限流或超时重试过</td></tr>
+      <tr><td class="l"><b>tok</b></td><td class="l">token 数。样本：输入 = 题目+rubric；生成 = 思考 + 回答。<br>
+        judge：生成 = 推理 + 评分原文</td></tr>
+    </table>
+
+    <div style="margin-top:11px;color:var(--dim)">
+      <b>格子里是什么</b>：该源在该题上「6 次采样中判为<b>解出</b>的次数」，分母是该题实际判过分的样本数。<br>
+      <b>pass@1 / <span id="pklab">pass@N</span></b>：pass@1 = 所有样本里判为解出的比例；
+      <span id="pklab2">pass@N</span> = 一题给 N 次机会、<b>至少一次</b>解出的概率（逐题算再对全题求平均）。
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div id="mx"></div>
+  <div id="det"><div class="empty">← 点左边任意一个格子<br>查看该题在该源上 6 次采样的实际输出与 judge 判据</div></div>
+</div>
+
+<script src="index.js"></script>
+<script>
+const F = window.FSR, SUBJ = F.subj, SOLVED = F.solvedFraction ?? 0.7;
+const N_SAMP = F.minPass ?? 6;
+
+/* ── 标题 / 副标题 / 下载项：由 index.js 的配置驱动 ── */
+(function(){
+  document.title = F.title || 'Trace Viewer';
+  const t=document.getElementById('ttl'), s=document.getElementById('sub');
+  if(t) t.textContent = F.title || 'Trace Viewer';
+  if(s) s.textContent = F.subtitle || '';
+  const dl=F.downloads||[];
+  if(dl.length){
+    const sel=document.getElementById('dl'), wrap=document.getElementById('dlwrap'),
+          go=document.getElementById('dlgo');
+    sel.innerHTML='<option value="">— 选择要下载的内容 —</option>'+
+      dl.map((d,i)=>`<option value="${d.path}">${d.label}${d.size?'（'+d.size+'）':''}</option>`).join('');
+    wrap.style.display=''; go.style.display='';
+  }
+  // 帮助区里的动态文案
+  const PK = F.passLabel || ('pass@'+N_SAMP);
+  const a=document.getElementById('pklab'), b=document.getElementById('pklab2');
+  if(a) a.textContent=PK;
+  if(b) b.textContent=PK;
+  const sk=document.getElementById('sknote');
+  if(sk){
+    const counts=F.tags.map(t=>F.summary[t].skip).reduce((x,y)=>x+y,0);
+    sk.innerHTML = F.tags.map(t=>{
+      const n=F.summary[t].skip;
+      const bg = n>=10 ? '#7f1d1d;color:#fecaca' : '#3f3f46;color:#e4e4e7';
+      return `<span class="chip" style="background:${bg}">${F.names[t]} ${n}</span>`;
+    }).join(' ') + `　共 ${counts} 条`;
+  }
+  const he=document.getElementById('helpExtra');
+  if(he && F.helpNote){ he.innerHTML = F.helpNote; }
+})();
+const COL = v => v===6?'#166534': v>=4?'#15803d': v===3?'#4d7c0f': v===2?'#a16207': v===1?'#9a3412':'#7f1d1d';
+const cellMap = {};
+F.cells.forEach(c => cellMap[c.tag+'|'+c.row] = c);
+let selTag = null, selCell = null;
+
+/* ── 极简 markdown 渲染（先转义，再只处理 **粗体** / 标题 / 列表 / 分隔线）── */
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function mdLite(s){
+  let h = esc(s);
+  h = h.replace(/^---+$/gm,'<hr>')
+       .replace(/^#{1,3}\s+(.+)$/gm,'<h3>$1</h3>')
+       .replace(/\*\*(.+?)\*\*/g,'<b>$1</b>')
+       // 列表项：允许行首缩进（judge 常用「   - 」子项）
+       .replace(/(?:^|\n)[ \t]*[-*]\s+(.+)/g,'\n<li>$1</li>');
+  // 把连续的 <li> 包进 <ul>
+  h = h.replace(/(?:<li>[\s\S]*?<\/li>\n?)+/g, m=>'<ul>'+m+'</ul>');
+  return h;
+}
+const fmt = n => n==null ? '—' : n.toLocaleString();
+
+/* ── 汇总表 ── */
+(function(){
+  const PK = F.passLabel || ('pass@'+N_SAMP);
+  let h = `<table><tr><th class="l">源</th><th>pass@1</th><th>${PK}</th><th>mean pts</th>`+
+          '<th>skip_empty</th><th>条数</th></tr>';
+  F.tags.slice().sort((a,b)=>F.summary[b].p1-F.summary[a].p1).forEach(t=>{
+    const s=F.summary[t];
+    h += `<tr data-tag="${t}" style="cursor:pointer"><td class="l">${s.name}</td>
+      <td>${s.p1.toFixed(4)}</td><td>${s.pk.toFixed(4)}</td>
+      <td>${s.mean.toFixed(4)}</td><td>${s.skip}</td><td>${s.n}</td></tr>`;
+  });
+  if(F.reference){
+    const R=F.reference;
+    h += `<tr style="color:var(--dim2)"><td class="l">${R.name||'参考'}</td>
+      <td>${R.p1 ?? '—'}</td><td>${R.pk ?? '—'}</td><td>${R.mean ?? '—'}</td>
+      <td>${R.skip ?? '—'}</td><td>${R.n ?? '—'}</td></tr>`;
+  }
+  h += '</table>';
+  document.getElementById('sum').innerHTML = h;
+  document.querySelectorAll('#sum tr[data-tag]').forEach(tr=>{
+    tr.onclick = () => { selTag = selTag===tr.dataset.tag ? null : tr.dataset.tag;
+      document.querySelectorAll('#sum tr').forEach(x=>x.classList.toggle('sel', x.dataset.tag===selTag));
+      render(); };
+  });
+})();
+
+['sort','subj','maxsol','hideok'].forEach(id=>document.getElementById(id).onchange = render);
+
+/* ── 下载 ── */
+(function(){
+  const sel=document.getElementById('dl'), go=document.getElementById('dlgo');
+  function download(url){
+    const a=document.createElement('a');
+    a.href=url; a.download=''; document.body.appendChild(a); a.click(); a.remove();
+  }
+  // 选单变化即开始下载
+  sel.onchange=()=>{ if(sel.value) download(sel.value); };
+  // 大按钮：默认下全量包
+  go.onclick=()=>download(sel.value || 'download/fsr60-full.zip');
+})();
+
+/* ── 名词说明展开/收起 ── */
+(function(){
+  const a=document.getElementById('helptog'), h=document.getElementById('help');
+  if(!a||!h) return;
+  a.onclick=e=>{
+    e.preventDefault();
+    const open = h.style.display==='none';
+    h.style.display = open ? 'block' : 'none';
+    a.textContent = open ? '❓ 收起说明' : '❓ 名词说明';
+  };
+})();
+
+/* ── 矩阵 ── */
+function render(){
+  const sort=document.getElementById('sort').value, subj=document.getElementById('subj').value;
+  const maxsol=+document.getElementById('maxsol').value, hideok=document.getElementById('hideok').checked;
+
+  let rows=[...new Set(F.cells.map(c=>c.row))].filter(r=>{
+    if(subj && F.qmeta[r].subject!==subj) return false;
+    if(hideok){
+      const cs=F.tags.map(t=>cellMap[t+'|'+r]).filter(Boolean);
+      const tot=cs.reduce((a,c)=>a+c.nsolved,0), n=cs.reduce((a,c)=>a+c.nvalid,0);
+      if(n && tot/n>0.25) return false;
+    }
+    return true;
+  });
+  if(sort==='hard') rows.sort((a,b)=>F.rowdiff[a]-F.rowdiff[b]);
+  else if(sort==='easy') rows.sort((a,b)=>F.rowdiff[b]-F.rowdiff[a]);
+  else if(sort==='subj') rows.sort((a,b)=>F.qmeta[a].subject.localeCompare(F.qmeta[b].subject)||a-b);
+
+  let h='<table class="grid"><tr><th class="rowh"></th>';
+  F.tags.forEach(t=>{const s=F.summary[t];
+    h+=`<th data-t="${t}" title="${s.name} · pass@1 ${s.p1} · mean ${s.mean}">${s.name.replace(/ \(自建\)/,'')}</th>`;});
+  h+='</tr>';
+  rows.forEach(r=>{
+    h+=`<tr><th class="rowh" title="${SUBJ[F.qmeta[r].subject]} · 各源平均解出率 ${(F.rowdiff[r]*100).toFixed(0)}%">`
+      +`${String(r).padStart(2,'0')}<span style="opacity:.45">·${SUBJ[F.qmeta[r].subject][0]}</span></th>`;
+    F.tags.forEach(t=>{
+      const c=cellMap[t+'|'+r]; if(!c){h+='<td></td>';return;}
+      const dim=(selTag&&selTag!==t)||(maxsol<6&&c.nsolved>maxsol);
+      const act=selCell&&selCell.tag===t&&selCell.row===r;
+      h+=`<td><div class="cell ${dim?'dim':''} ${act?'act':''}" style="background:${COL(c.nsolved)}"`
+        +` title="${F.names[t]} · 第${r}题｜解出 ${c.nsolved}/${c.nvalid}｜均分 ${c.mean??'—'}｜skip ${c.nskip}"`
+        +` data-t="${t}" data-r="${r}">${c.nsolved}/${c.nvalid}</div></td>`;
+    });
+    h+='</tr>';
+  });
+  const mx=document.getElementById('mx'); mx.innerHTML=h+'</table>';
+  mx.querySelectorAll('.cell').forEach(el=>el.onclick=()=>{
+    selCell={tag:el.dataset.t,row:+el.dataset.r}; render(); open(selCell.tag,selCell.row);});
+  mx.querySelectorAll('th[data-t]').forEach(th=>th.onclick=()=>{
+    selTag=selTag===th.dataset.t?null:th.dataset.t;
+    document.querySelectorAll('#sum tr').forEach(x=>x.classList.toggle('sel',x.dataset.tag===selTag)); render();});
+  document.getElementById('hint').textContent=`显示 ${rows.length} 题`+(selTag?` · 已高亮 ${F.names[selTag]}`:'');
+}
+
+/* ── 明细：动态 <script>（file:// 下也能用）── */
+const loading={};
+function loadCell(tag,row,cb){
+  const g='FSRC_'+tag.replace(/-/g,'_')+'_'+row;
+  if(window[g]) return cb(window[g]);
+  (loading[g]=loading[g]||[]).push(cb);
+  if(loading[g].length>1) return;
+  const s=document.createElement('script');
+  s.src=`cells/${tag}_${String(row).padStart(4,'0')}.js`;
+  s.onload=()=>loading[g].forEach(f=>f(window[g]));
+  s.onerror=()=>document.getElementById('det').innerHTML=`<div class="empty">加载失败<br>
+    cells/${tag}_${String(row).padStart(4,'0')}.js<br><br>
+    若浏览器拦截本地文件，在本目录执行<br><code>python3 -m http.server 8899</code><br>
+    再访问 <a href="http://localhost:8899/index.html">localhost:8899</a></div>`;
+  document.head.appendChild(s);
+}
+
+/* 内容块 */
+function blk(cls,ico,title,fn,chars,inner,open,tok){
+  const q=[];
+  if(chars!=null) q.push(fmt(chars)+' 字符');
+  if(tok!=null&&tok>0) q.push(fmt(tok)+' tok');
+  return `<div class="blk ${cls}${open?' open':''}"><div class="bh">
+    <span class="arw">${open?'▼':'▶'}</span><span class="ico">${ico}</span>
+    <span>${title}</span><span class="fn">${fn}</span>
+    <span class="ln">${q.join(' · ')}</span></div>
+    <div class="bd">${inner}</div></div>`;
+}
+
+function open(tag,row){
+  document.getElementById('det').innerHTML='<div class="empty">载入中…</div>';
+  loadCell(tag,row,d=>{
+    const c=cellMap[tag+'|'+row];
+    let h='<div class="pad">';
+    h+=`<div class="qbox"><div class="qh">
+      <span class="chip src">${F.names[tag]}</span>
+      <span class="chip subj">${SUBJ[d.subject]}</span>
+      <b>第 ${row} 题</b>
+      <span class="kv">解出 <b>${c.nsolved}/${c.nvalid}</b> · 均分 <b>${c.mean??'—'}</b>${c.nskip?` · skip_empty <b>${c.nskip}</b>`:''}</span>
+    </div></div>`;
+
+    /* ① 题目区：人写的题面 + 官方评分标准 */
+    h+=`<div class="subhd" style="border-top:none;padding-top:0">📥 输入（人提供的）</div>`;
+    h+=blk('q','📋','题目原文','prompt',d.q.length,
+          `<div class="free"><pre id="QT"></pre></div>`,false,null);
+    h+=blk('rub','🎯','官方评分标准 gold','rubric',d.gold.length,
+          `<div class="hintline">judge 逐条对照这份 rubric 打分</div><div class="free"><pre id="GT"></pre></div>`,false,null);
+
+    /* ② 每个采样 */
+    h+=`<div class="subhd">📤 各次采样的输出与判分（s0 ~ s5）</div>`;
+    d.samples.sort((a,b)=>a.s-b.s).forEach(sm=>{
+      const ok=sm.rw!=null&&sm.rw>=SOLVED;
+      const cls=sm.sk?'v-sk':ok?'v-ok':sm.rw==null?'v-err':'v-no';
+      const lab=sm.sk?'skip_empty':ok?'解出':sm.rw==null?'判分失败':'未解出';
+
+      h+=`<div class="smp"><div class="sh">
+        <span class="verd ${cls}">s${sm.s} · ${lab}</span>
+        <span class="kv">reward <b>${sm.rw==null?'—':sm.rw.toFixed(3)}</b></span>
+        <span class="kv">points <b>${sm.pt ?? '—'}</b>/10</span>
+        <span class="kv">votes <b>${sm.vt ?? '—'}</b></span>
+        <span class="kv">finish <b>${sm.fr ?? 'null'}</b></span>
+        <span class="kv">生成 <b>${fmt(sm.ct)}</b> tok</span>
+        <span class="kv">耗时 <b>${sm.el ?? '—'}</b>s</span>
+        <span class="kv">尝试 <b>${sm.at ?? 1}</b> 次</span>
+        ${sm.err?`<span class="kv" style="color:#f87171">err ${String(sm.err).slice(0,50)}</span>`:''}
+      </div><div class="sb">`;
+
+      /* 模型侧 */
+      h+=blk('think','🧠','模型思考过程','reasoning_content',(sm.think||'').length,
+            `<div class="hintline">模型在给出最终答案之前的自由推理。若此块戛然而止，说明 token 预算耗尽。</div>
+             <div class="free"><pre class="THK"></pre></div>`,false,sm.ttok);
+      h+=blk('ans','✍️','模型最终回答','answer_visible',(sm.ans||'').length,
+            `<div class="hintline">⭐ <b>这才是 judge 实际打分的东西</b>（按 house 口径取 <code>&lt;/think&gt;</code> 之后的正文）</div>
+             <div class="free"><pre class="ANS"></pre></div>`,true,sm.atok);
+      h+=`<div class="hintline" style="margin:6px 0 0">输入 <b>${fmt(sm.ptok)}</b> tok（题目+rubric）　·　
+           本次生成 <b>${fmt(sm.ct)}</b> tok = 思考 <b>${fmt(sm.ttok)}</b> + 回答 <b>${fmt(sm.atok)}</b></div>`;
+
+      /* judge 侧 */
+      if(sm.votes&&sm.votes.length){
+        const ps=sm.votes.map(v=>v.pt).filter(x=>x!=null);
+        h+=`<div class="subhd">⚖️ JUDGE 判据　<span class="kv">
+          三票 points: ${sm.votes.map(v=>`<b>${v.pt ?? '—'}</b>`).join(' · ')}
+          ｜ 中位 <b>${sm.pt ?? '—'}</b>/10 ｜ votes <b>${sm.vt}</b></span></div>`;
+        sm.votes.forEach((v,i)=>{
+          const vok=v.fr!=null&&v.fr>=SOLVED;
+          h+=`<div class="votewrap">
+            <div class="votehd">
+              <span class="tick" style="background:${vok?'#15803d':'#9a3412'}">${vok?'✓':'✗'}</span>
+              <b>第 ${i+1} 票</b>
+              <span class="kv">points <b>${v.pt ?? '—'}</b></span>
+              <span class="kv">fraction <b>${v.fr ?? '—'}</b></span>
+              <span class="kv">verdict <b>${v.vd ?? '—'}</b></span>
+              ${v.ext?`<span class="kv">抽取总分 <b>${v.ext}</b></span>`:''}
+              ${v.dur!=null?`<span class="kv">耗时 <b>${v.dur.toFixed(0)}</b>s</span>`:''}
+              ${v.utok?`<span class="kv">judge 生成 <b>${fmt(v.utok)}</b> tok（推理 <b>${fmt(v.wtok)}</b> + 评分 <b>${fmt(v.stok)}</b>）</span>`:''}
+              ${v.eff?`<span class="kv">effort <b>${v.eff}</b></span>`:''}
+              ${v.mdl?`<span class="kv">模型 <b>${v.mdl}</b></span>`:''}
+            </div>`;
+          const uid=`j${sm.s}_${i}`;
+          h+=blk('jout','📄','judge 评分原文（逐条对照 rubric）','content',(v.said||'').length,
+                `<div class="tog"><button class="on" data-t="${uid}" data-m="md">渲染</button>
+                  <button data-t="${uid}" data-m="raw">原文</button></div>
+                 <div class="free"><div class="md MDO" id="md_${uid}"></div>
+                 <pre id="raw_${uid}" style="display:none"></pre></div>`,true,v.stok);
+          h+=blk('jwhy','🤔','judge 推理过程','reasoning_content',(v.why||'').length,
+                `<div class="hintline">judge 在写出上面那份评分之前的思考</div>
+                 <div class="free"><pre class="WHY"></pre></div>`,false,v.wtok);
+          h+=`</div>`;
+        });
+      } else {
+        h+=`<div class="subhd">⚖️ JUDGE 判据</div>`;
+        h+=blk('note','⚠️','未调用 judge', sm.sk?'skip_empty':'-', null,
+              `<div class="hintline">${sm.sk
+                ? `模型把全部 ${fmt(sm.ct)} tok 预算花在思考上、没写出任何答案。按 FSR 口径 <b>直接记 0 分</b>，不调用 judge。`
+                : '（无判分记录）'}</div>`,true,null);
+      }
+      h+=`</div></div>`;
+    });
+    h+=`</div>`;
+
+    const det=document.getElementById('det'); det.innerHTML=h;
+    det.querySelector('#QT').textContent=d.q;
+    det.querySelector('#GT').textContent=d.gold;
+
+    det.querySelectorAll('.smp').forEach((el,i)=>{
+      const sm=d.samples[i];
+      el.querySelector('.ANS').textContent=sm.ans||'（无）';
+      el.querySelector('.THK').textContent=sm.think||'（无）';
+      const whys=el.querySelectorAll('.WHY');
+      (sm.votes||[]).forEach((v,j)=>{ if(whys[j]) whys[j].textContent=v.why||'（无推理内容）'; });
+      (sm.votes||[]).forEach((v,j)=>{
+        const uid=`j${sm.s}_${j}`;
+        const md=det.querySelector(`#md_${uid}`,), raw=det.querySelector(`#raw_${uid}`);
+        if(!md) return;
+        md.innerHTML=mdLite(v.said||'（无）');
+        raw.textContent=v.said||'（无）';
+      });
+    });
+    // 折叠交互
+    det.querySelectorAll('.blk>.bh').forEach(bh=>bh.onclick=()=>{
+      bh.parentElement.classList.toggle('open');
+      bh.querySelector('.arw').textContent=bh.parentElement.classList.contains('open')?'▼':'▶';
+    });
+    // 渲染/原文切换
+    det.querySelectorAll('.tog button').forEach(b=>b.onclick=()=>{
+      const uid=b.dataset.t, m=b.dataset.m;
+      det.querySelectorAll(`.tog button[data-t="${uid}"]`).forEach(x=>x.classList.toggle('on',x.dataset.m===m));
+      det.querySelector(`#md_${uid}`).style.display = m==='md'?'':'none';
+      det.querySelector(`#raw_${uid}`).style.display = m==='raw'?'':'none';
+    });
+    det.scrollTop=0;
+  });
+}
+render();
+</script>
+</body>
+</html>
