@@ -95,43 +95,85 @@ def load(raw: Path, judged: Path, tags):
 
 
 def build_sampling_summary(sampling: dict, tags) -> dict:
-    """把收集到的采样参数汇总成面板可渲染的结构。
+    """采样参数汇总 —— 以「每次 run」为单位。
 
-    前提：为了公平对比，所有样本应在同一套采样参数下产生。
-    这里不做假设，而是把实际观测到的参数组合全部列出来 —— 如果多于一种，
-    面板会直接标红，而不是编造一个「统一参数」骗读者。
+    关键区分（两者不等价，必须分开报）：
+      · 组内一致（per-run uniform）：一次 run 的 N 条样本参数完全相同
+      · 跨源一致（identical across runs）：7 次 run 用的也是同一套
+    若 Novita 跑 temp=1.0 而智谱跑 temp=0.7，则「组内都一致」但「跨源不一致」。
+    笼统地只说一个「一致」会丢掉「是谁不一致」，所以两个维度都报。
+
+    不做假设：某次 run 若实际混了多种参数，这里会如实地标出该 run 内部不一致。
     """
     PREFERRED = ["temperature", "top_p", "top_k", "repetition_penalty",
                  "presence_penalty", "frequency_penalty", "min_p", "n", "max_tokens"]
+
+    def order(vals):
+        keys = [k for k in PREFERRED if k in vals] + \
+               sorted(k for k in vals if k not in PREFERRED)
+        return {k: vals[k] for k in keys}
+
+    # ── 按 run 拆开 ──
+    per_run = {}          # tag -> {sig: count}
+    for sig, per_tag in sampling.items():
+        for tag, n in per_tag.items():
+            per_run.setdefault(tag, {})[sig] = per_run.get(tag, {}).get(sig, 0) + n
+
+    runs = []
+    for tag, name in tags:
+        sigs = per_run.get(tag, {})
+        total = sum(sigs.values())
+        miss = sigs.get("__MISSING__", 0)
+        real = {s: n for s, n in sigs.items() if s != "__MISSING__"}
+        variants = []
+        for sig, n in sorted(real.items(), key=lambda kv: -kv[1]):
+            variants.append({"values": order(json.loads(sig)), "count": n})
+        runs.append({
+            "tag": tag, "name": name, "count": total, "missing": miss,
+            "variants": variants, "n_variants": len(variants),
+            # 组内一致：恰好一种参数，无缺失
+            "consistent": len(variants) == 1 and miss == 0,
+            "values": variants[0]["values"] if len(variants) == 1 else None,
+        })
+
+    # ── 全局组合（保留，用于「跨源」判断）──
     combos = []
-    total = 0
     for sig, per_tag in sampling.items():
         n = sum(per_tag.values())
-        total += n
         if sig == "__MISSING__":
             combos.append({"values": None, "count": n,
                            "sources": sorted(per_tag), "missing": True})
-            continue
-        vals = json.loads(sig)
-        # 参数顺序：优先用约定顺序，剩余的按字母排
-        keys = [k for k in PREFERRED if k in vals] + \
-               sorted(k for k in vals if k not in PREFERRED)
-        combos.append({"values": {k: vals[k] for k in keys},
-                       "count": n, "sources": sorted(per_tag), "missing": False})
+        else:
+            combos.append({"values": order(json.loads(sig)), "count": n,
+                           "sources": sorted(per_tag), "missing": False})
     combos.sort(key=lambda c: (-c["count"], c["missing"]))
-    # 参数名取并集（保持顺序），供表格表头用
+
     params = []
     for c in combos:
         for k in (c["values"] or {}):
             if k not in params:
                 params.append(k)
+
+    all_run_ok = all(r["consistent"] for r in runs)
+    # 跨源一致 = 每个 run 的一致参数都一样
+    sigs_used = {json.dumps(r["values"], sort_keys=True)
+                 for r in runs if r["consistent"] and r["values"]}
+    identical = all_run_ok and len(sigs_used) == 1
+
     return {
         "params": params,
+        "runs": runs,
         "combos": combos,
-        "total": total,
+        "total": sum(r["count"] for r in runs),
+        "n_runs": len(runs),
         "n_combos": len([c for c in combos if not c["missing"]]),
         "missing": sum(c["count"] for c in combos if c["missing"]),
-        "consistent": len(combos) == 1 and not combos[0]["missing"],
+        "all_runs_consistent": all_run_ok,
+        "all_runs_identical": identical,
+        "n_consistent_runs": sum(1 for r in runs if r["consistent"]),
+        "n_distinct_run_params": len(sigs_used),
+        # 向后兼容：单一布尔值表示「所有 run 内部统一」
+        "consistent": all_run_ok,
     }
 
 
@@ -164,8 +206,10 @@ def main():
     data, qmeta, sampling = load(raw, judged, tags)
     print(f"载入 {len(data)} 条样本，{len(qmeta)} 道题，{len(tags)} 个源")
     samp_sum = build_sampling_summary(sampling, tags)
-    print(f"采样参数: {samp_sum['n_combos']} 种组合，{samp_sum['total']} 条样本"
-          + ("，全部一致" if samp_sum["consistent"] else "，⚠️ 存在不一致")
+    print(f"采样参数: {samp_sum['n_runs']} 次 run，"
+          f"{samp_sum['n_consistent_runs']}/{samp_sum['n_runs']} 组内一致"
+          + ("，跨源也一致" if samp_sum["all_runs_identical"] else
+             f"，但跨源有 {samp_sum['n_distinct_run_params']} 套不同参数")
           + (f"，{samp_sum['missing']} 条缺失" if samp_sum["missing"] else ""))
 
     # 每题采样数

@@ -236,62 +236,77 @@ const N_SAMP = F.minPass ?? 6;
   const he=document.getElementById('helpExtra');
   if(he && F.helpNote){ he.innerHTML = F.helpNote; }
 
-  // ── 采样参数面板（全局）──
+  // ── 采样参数面板（以「每次 run」为单位）──
   const sp=document.getElementById('samp');
   if(sp){
     const S=F.sampling;
-    if(!S || !S.combos) {
+    if(!S || !S.runs) {
       sp.innerHTML='<div style="color:var(--dim)">数据里没有 <code>request_sampling</code> 字段，无法展示采样参数。</div>';
     } else {
       const esc=s=>String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-      // 一致性横幅
+      const box=(bg,bd,html)=>`<div style="background:${bg};border-left:3px solid ${bd};border-radius:0 5px 5px 0;padding:9px 12px;margin-bottom:12px">${html}</div>`;
+
+      // ── 横幅：三种情形分开报（组内一致 / 跨源一致是两个不同的事）──
       let banner;
-      if(S.consistent){
-        banner = `<div style="background:#0d2818;border-left:3px solid #16a34a;border-radius:0 5px 5px 0;
-            padding:8px 11px;margin-bottom:12px">
-          <b style="color:#7ee787;font-size:13px">✅ 全部 ${S.total.toLocaleString()} 条样本使用同一套采样参数</b><br>
-          这是公平对比的前提：各源在同一温度、同一采样策略下产生答案。
-          参数取自每条样本原始记录里的 <code>request_sampling</code> 字段（逐条核对，非声明值）。
-        </div>`;
-      } else if(S.missing){
-        banner = `<div style="background:#3d1418;border-left:3px solid #dc2626;border-radius:0 5px 5px 0;
-            padding:8px 11px;margin-bottom:12px">
-          <b style="color:#ffa198;font-size:13px">⚠️ 发现 ${S.n_combos} 种参数组合，另有 ${S.missing} 条未记录参数</b><br>
-          不一致意味着各源的条件可能不同，对比时要打折扣。
-        </div>`;
+      const NR=S.n_runs, OK=S.n_consistent_runs;
+      if(S.all_runs_identical){
+        banner = box('#0d2818','#16a34a',`
+          <b style="color:#7ee787;font-size:13px">✅ ${NR} 次 run 各自内部统一，且彼此用的是同一套参数</b><br>
+          这是公平对比的前提：每次 run 的 ${S.runs[0].count} 条样本温度、采样策略完全相同，且 7 次 run 之间也一致。
+          参数取自每条样本原始记录里的 <code>request_sampling</code> 字段（<b>逐条核对，非声明值</b>）。`);
+      } else if(S.all_runs_consistent){
+        banner = box('#2a2008','#d97706',`
+          <b style="color:#fbbf24;font-size:13px">⚠️ ${NR} 次 run 各自内部统一，但跨源有 ${S.n_distinct_run_params} 套不同参数</b><br>
+          每次 run 内部是干净的，但不同源之间条件不同 —— 分数差异可能部分来自采样策略而非模型能力。
+          下表可直接看到哪次 run 与别人不一样。`);
       } else {
-        banner = `<div style="background:#3d1418;border-left:3px solid #dc2626;border-radius:0 5px 5px 0;
-            padding:8px 11px;margin-bottom:12px">
-          <b style="color:#ffa198;font-size:13px">⚠️ 发现 ${S.n_combos} 种不同的采样参数组合</b><br>
-          这意味着各源并非在同一条件下采样，分数对比需要谨慎。
-        </div>`;
+        const bad=S.runs.filter(r=>!r.consistent);
+        banner = box('#3d1418','#dc2626',`
+          <b style="color:#ffa198;font-size:13px">⚠️ ${bad.length}/${NR} 次 run 内部就混了多种参数</b><br>
+          ${bad.map(r=>`<b>${esc(r.name)}</b>（${r.n_variants} 套${r.missing?`，另有 ${r.missing} 条未记录`:''}）`).join('　·　')}<br>
+          一次 run 内部参数不统一，意味着该源的样本不是同一条件下的产物。`);
       }
-      // 参数表
-      let th='<tr><th class="l">参数</th>';
-      S.combos.forEach((c,i)=>{
-        th += `<th style="text-align:right">组合 ${i+1}<br><span style="font-weight:400;color:var(--dim)">${c.count.toLocaleString()} 条</span></th>`;
-      });
+
+      // ── 表：每次 run 一行 ──
+      let th='<tr><th class="l" style="min-width:130px">run</th><th style="text-align:right">样本</th><th style="text-align:center">组内一致</th>';
+      S.params.forEach(p=>{ th += `<th style="text-align:right"><code>${esc(p)}</code></th>`; });
       th+='</tr>';
       let tb='';
-      S.params.forEach(p=>{
-        tb += `<tr><td class="l"><code>${esc(p)}</code></td>`;
-        S.combos.forEach(c=>{
-          const v = c.values ? c.values[p] : undefined;
-          tb += `<td style="text-align:right"><code>${v===undefined?'—':esc(v)}</code></td>`;
+      S.runs.forEach(r=>{
+        const v=r.values;
+        const badge = r.consistent
+          ? '<span style="color:#7ee787">✅</span>'
+          : `<span style="color:#ffa198">✗ ${r.n_variants} 套</span>`;
+        tb += `<tr><td class="l">${esc(r.name)}</td>`
+            + `<td style="text-align:right;color:var(--dim)">${r.count}</td>`
+            + `<td style="text-align:center">${badge}</td>`;
+        S.params.forEach(p=>{
+          if(!v){ tb += '<td style="text-align:right;color:#ffa198">—</td>'; return; }
+          tb += `<td style="text-align:right"><code>${esc(v[p])}</code></td>`;
         });
         tb += '</tr>';
       });
-      // 源覆盖
-      tb += '<tr><td class="l" style="color:var(--dim)">覆盖源</td>';
-      S.combos.forEach(c=>{
-        tb += `<td style="text-align:right;color:var(--dim);font-size:11px">${c.sources.length} 个</td>`;
-      });
-      tb += '</tr>';
+      // 差异列：若跨源不一致，额外列出每种参数是否在 run 之间有分歧
+      let diffHtml='';
+      if(!S.all_runs_identical && S.all_runs_consistent){
+        const rows=[];
+        S.params.forEach(p=>{
+          const vals=[...new Set(S.runs.map(r=>r.values?String(r.values[p]):'—'))];
+          if(vals.length>1) rows.push(`<code>${esc(p)}</code>：${vals.map(esc).join(' / ')}`);
+        });
+        if(rows.length) diffHtml=`<div style="margin-top:10px;color:#fbbf24;font-size:12px">
+          <b>具体差在哪</b>：${rows.join('　·　')}</div>`;
+      }
+
       sp.innerHTML = banner
         + `<table style="width:100%;font-size:12px">${th}${tb}</table>`
+        + diffHtml
         + `<div style="margin-top:11px;color:var(--dim);font-size:11px;line-height:1.7">
-             <b>为什么这么重要</b>：temperature / top_k 这类参数直接决定输出的随机性与分布形状。
-             若各源参数不一致，「谁分高」就可能只是采样策略的差别，而不是模型能力差别。<br>
+             <b>为什么分开报这两个维度</b>：
+             「组内一致」说明一次 run 是一个干净的实验单元；
+             「跨源一致」说明 7 次 run 之间可比。
+             若 Novita 跑 temp=1.0 而智谱跑 temp=0.7，则两次 run 组内都一致、但跨源不一致 ——
+             此时分数差可能只是采样策略的差别，不是模型能力差别。<br>
              <b>数据来源</b>：每条样本的 <code>request_sampling</code>（harness 实际发出去的 body），
              与采样参数检测记录（<code>probes/param_acceptance.txt</code>、<code>param_effect_summary.json</code>）一致。
            </div>`;
