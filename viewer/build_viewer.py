@@ -68,12 +68,20 @@ def discover_tags(raw: Path, judged: Path, cfg: dict) -> list[tuple[str, str]]:
 
 def load(raw: Path, judged: Path, tags):
     data, qmeta = {}, {}
+    sampling = {}          # (源, 参数签名) -> 计数；用于全局「采样参数」面板
     for tag, _ in tags:
         for f in sorted((raw / tag).glob("row*.json")):
             r = json.load(open(f, encoding="utf-8"))
             data[(tag, r["row_index"], r["s_idx"])] = {"raw": r, "judged": None}
             qmeta[r["row_index"]] = {"subject": r.get("subject", "?"),
                                      "q": r.get("question", ""), "gold": r.get("gold", "")}
+            rs = r.get("request_sampling")
+            if isinstance(rs, dict) and rs:
+                sig = json.dumps(rs, sort_keys=True, ensure_ascii=False)
+            else:
+                sig = "__MISSING__"
+            sampling.setdefault(sig, {}).setdefault(tag, 0)
+            sampling[sig][tag] += 1
     for tag, _ in tags:
         jd = judged / tag / "judged"
         if not jd.exists():
@@ -83,7 +91,48 @@ def load(raw: Path, judged: Path, tags):
             k = (tag, j["row_index"], j["s_idx"])
             if k in data:
                 data[k]["judged"] = j
-    return data, qmeta
+    return data, qmeta, sampling
+
+
+def build_sampling_summary(sampling: dict, tags) -> dict:
+    """把收集到的采样参数汇总成面板可渲染的结构。
+
+    前提：为了公平对比，所有样本应在同一套采样参数下产生。
+    这里不做假设，而是把实际观测到的参数组合全部列出来 —— 如果多于一种，
+    面板会直接标红，而不是编造一个「统一参数」骗读者。
+    """
+    PREFERRED = ["temperature", "top_p", "top_k", "repetition_penalty",
+                 "presence_penalty", "frequency_penalty", "min_p", "n", "max_tokens"]
+    combos = []
+    total = 0
+    for sig, per_tag in sampling.items():
+        n = sum(per_tag.values())
+        total += n
+        if sig == "__MISSING__":
+            combos.append({"values": None, "count": n,
+                           "sources": sorted(per_tag), "missing": True})
+            continue
+        vals = json.loads(sig)
+        # 参数顺序：优先用约定顺序，剩余的按字母排
+        keys = [k for k in PREFERRED if k in vals] + \
+               sorted(k for k in vals if k not in PREFERRED)
+        combos.append({"values": {k: vals[k] for k in keys},
+                       "count": n, "sources": sorted(per_tag), "missing": False})
+    combos.sort(key=lambda c: (-c["count"], c["missing"]))
+    # 参数名取并集（保持顺序），供表格表头用
+    params = []
+    for c in combos:
+        for k in (c["values"] or {}):
+            if k not in params:
+                params.append(k)
+    return {
+        "params": params,
+        "combos": combos,
+        "total": total,
+        "n_combos": len([c for c in combos if not c["missing"]]),
+        "missing": sum(c["count"] for c in combos if c["missing"]),
+        "consistent": len(combos) == 1 and not combos[0]["missing"],
+    }
 
 
 def main():
@@ -112,8 +161,12 @@ def main():
     tags = discover_tags(raw, judged, cfg)
     if not tags:
         raise SystemExit("没找到任何源（raw/ 下需要有以源命名的目录）")
-    data, qmeta = load(raw, judged, tags)
+    data, qmeta, sampling = load(raw, judged, tags)
     print(f"载入 {len(data)} 条样本，{len(qmeta)} 道题，{len(tags)} 个源")
+    samp_sum = build_sampling_summary(sampling, tags)
+    print(f"采样参数: {samp_sum['n_combos']} 种组合，{samp_sum['total']} 条样本"
+          + ("，全部一致" if samp_sum["consistent"] else "，⚠️ 存在不一致")
+          + (f"，{samp_sum['missing']} 条缺失" if samp_sum["missing"] else ""))
 
     # 每题采样数
     ns = args.samples
@@ -185,6 +238,7 @@ def main():
         "minPass": ns, "solvedFraction": solved,
         "reference": cfg.get("reference"),
         "downloads": cfg.get("downloads", []),
+        "sampling": samp_sum,
         "qmeta": {str(r): {"subject": qmeta[r]["subject"]} for r in qmeta},
         "cells": list(cells.values()),
     }) + ";", encoding="utf-8")

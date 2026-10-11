@@ -147,8 +147,13 @@ pre{white-space:pre-wrap;word-break:break-word;margin:0;
     <span class="sw" style="background:#166534"></span>6
     &nbsp;·&nbsp; 点列头可只高亮某源
     &nbsp;·&nbsp;
+    <a href="#" id="samptog" style="color:var(--hi)">⚙️ 采样参数</a>
+    &nbsp;·&nbsp;
     <a href="#" id="helptog" style="color:var(--hi)">❓ 名词说明</a>
   </div>
+
+  <div id="samp" style="display:none;margin-top:9px;background:#0d1017;border:1px solid var(--line2);
+       border-radius:7px;padding:11px 14px;font-size:12px;line-height:1.75;max-height:56vh;overflow:auto"></div>
 
   <div id="help" style="display:none;margin-top:9px;background:#0d1017;border:1px solid var(--line2);
        border-radius:7px;padding:11px 14px;font-size:12px;line-height:1.75;max-height:56vh;overflow:auto">
@@ -195,7 +200,7 @@ pre{white-space:pre-wrap;word-break:break-word;margin:0;
   <div id="det"><div class="empty">← 点左边任意一个格子<br>查看该题在该源上 6 次采样的实际输出与 judge 判据</div></div>
 </div>
 
-<script src="index.js"></script>
+<script src="index.js?v=5f109b02a1"></script>
 <script>
 const F = window.FSR, SUBJ = F.subj, SOLVED = F.solvedFraction ?? 0.7;
 const N_SAMP = F.minPass ?? 6;
@@ -230,6 +235,81 @@ const N_SAMP = F.minPass ?? 6;
   }
   const he=document.getElementById('helpExtra');
   if(he && F.helpNote){ he.innerHTML = F.helpNote; }
+
+  // ── 采样参数面板（全局）──
+  const sp=document.getElementById('samp');
+  if(sp){
+    const S=F.sampling;
+    if(!S || !S.combos) {
+      sp.innerHTML='<div style="color:var(--dim)">数据里没有 <code>request_sampling</code> 字段，无法展示采样参数。</div>';
+    } else {
+      const esc=s=>String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+      // 一致性横幅
+      let banner;
+      if(S.consistent){
+        banner = `<div style="background:#0d2818;border-left:3px solid #16a34a;border-radius:0 5px 5px 0;
+            padding:8px 11px;margin-bottom:12px">
+          <b style="color:#7ee787;font-size:13px">✅ 全部 ${S.total.toLocaleString()} 条样本使用同一套采样参数</b><br>
+          这是公平对比的前提：各源在同一温度、同一采样策略下产生答案。
+          参数取自每条样本原始记录里的 <code>request_sampling</code> 字段（逐条核对，非声明值）。
+        </div>`;
+      } else if(S.missing){
+        banner = `<div style="background:#3d1418;border-left:3px solid #dc2626;border-radius:0 5px 5px 0;
+            padding:8px 11px;margin-bottom:12px">
+          <b style="color:#ffa198;font-size:13px">⚠️ 发现 ${S.n_combos} 种参数组合，另有 ${S.missing} 条未记录参数</b><br>
+          不一致意味着各源的条件可能不同，对比时要打折扣。
+        </div>`;
+      } else {
+        banner = `<div style="background:#3d1418;border-left:3px solid #dc2626;border-radius:0 5px 5px 0;
+            padding:8px 11px;margin-bottom:12px">
+          <b style="color:#ffa198;font-size:13px">⚠️ 发现 ${S.n_combos} 种不同的采样参数组合</b><br>
+          这意味着各源并非在同一条件下采样，分数对比需要谨慎。
+        </div>`;
+      }
+      // 参数表
+      let th='<tr><th class="l">参数</th>';
+      S.combos.forEach((c,i)=>{
+        th += `<th style="text-align:right">组合 ${i+1}<br><span style="font-weight:400;color:var(--dim)">${c.count.toLocaleString()} 条</span></th>`;
+      });
+      th+='</tr>';
+      let tb='';
+      S.params.forEach(p=>{
+        tb += `<tr><td class="l"><code>${esc(p)}</code></td>`;
+        S.combos.forEach(c=>{
+          const v = c.values ? c.values[p] : undefined;
+          tb += `<td style="text-align:right"><code>${v===undefined?'—':esc(v)}</code></td>`;
+        });
+        tb += '</tr>';
+      });
+      // 源覆盖
+      tb += '<tr><td class="l" style="color:var(--dim)">覆盖源</td>';
+      S.combos.forEach(c=>{
+        tb += `<td style="text-align:right;color:var(--dim);font-size:11px">${c.sources.length} 个</td>`;
+      });
+      tb += '</tr>';
+      sp.innerHTML = banner
+        + `<table style="width:100%;font-size:12px">${th}${tb}</table>`
+        + `<div style="margin-top:11px;color:var(--dim);font-size:11px;line-height:1.7">
+             <b>为什么这么重要</b>：temperature / top_k 这类参数直接决定输出的随机性与分布形状。
+             若各源参数不一致，「谁分高」就可能只是采样策略的差别，而不是模型能力差别。<br>
+             <b>数据来源</b>：每条样本的 <code>request_sampling</code>（harness 实际发出去的 body），
+             与采样参数检测记录（<code>probes/param_acceptance.txt</code>、<code>param_effect_summary.json</code>）一致。
+           </div>`;
+    }
+  }
+  const st=document.getElementById('samptog');
+  if(st){
+    st.onclick=e=>{
+      e.preventDefault();
+      const open = sp.style.display==='none';
+      sp.style.display = open ? 'block' : 'none';
+      if(open && document.getElementById('help').style.display!=='none'){
+        document.getElementById('help').style.display='none';
+        const ht=document.getElementById('helptog'); if(ht) ht.textContent='❓ 名词说明';
+      }
+      st.textContent = open ? '⚙️ 收起参数' : '⚙️ 采样参数';
+    };
+  }
 })();
 const COL = v => v===6?'#166534': v>=4?'#15803d': v===3?'#4d7c0f': v===2?'#a16207': v===1?'#9a3412':'#7f1d1d';
 const cellMap = {};
@@ -356,7 +436,7 @@ function loadCell(tag,row,cb){
   (loading[g]=loading[g]||[]).push(cb);
   if(loading[g].length>1) return;
   const s=document.createElement('script');
-  s.src=`cells/${tag}_${String(row).padStart(4,'0')}.js`;
+  s.src=`cells/${tag}_${String(row).padStart(4,'0')}.js?v=5f109b02a1`;
   s.onload=()=>loading[g].forEach(f=>f(window[g]));
   s.onerror=()=>document.getElementById('det').innerHTML=`<div class="empty">加载失败<br>
     cells/${tag}_${String(row).padStart(4,'0')}.js<br><br>
